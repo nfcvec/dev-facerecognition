@@ -1,95 +1,73 @@
+const run = async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: true,
+    audio: false,
+  });
 
+  const videoFeedEl = document.getElementById("video-feed");
+  videoFeedEl.srcObject = stream;
 
+  await Promise.all([
+    faceapi.nets.ssdMobilenetv1.loadFromUri("./models"),
+    faceapi.nets.faceLandmark68Net.loadFromUri("./models"),
+    faceapi.nets.faceRecognitionNet.loadFromUri("./models"),
+    faceapi.nets.ageGenderNet.loadFromUri("./models"),
+    faceapi.nets.faceExpressionNet.loadFromUri("./models"),
+  ]);
 
-const run = async()=>{
+  console.log("Modelos cargados");
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: true, 
-        audio: false,
-    })
+  const canvas = document.getElementById("canvas");
+  canvas.style.left = videoFeedEl.offsetLeft + "px";
+  canvas.style.top = videoFeedEl.offsetTop + "px";
+  canvas.height = videoFeedEl.height;
+  canvas.width = videoFeedEl.width;
 
-    const videoFeedEl = document.getElementById("video-feed")
-    videoFeedEl.srcObject = stream
+  const clearCanvas = () => {
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  };
 
-    await Promise.all([
-        faceapi.nets.ssdMobilenetv1.loadFromUri('./models'),
-        faceapi.nets.faceLandmark68Net.loadFromUri('./models'),
-        faceapi.nets.faceRecognitionNet.loadFromUri('./models'),
-        faceapi.nets.ageGenderNet.loadFromUri('./models'),
-        faceapi.nets.faceExpressionNet.loadFromUri('./models'),
-    ])
+  const writeText = (text) => {
+    const ctx = canvas.getContext("2d");
+    ctx.font = "30px Arial";
+    ctx.fillStyle = text === "unknown" ? "red" : "green";
+    ctx.fillText(text, 10, 50);
+  };
 
-    const canvas = document.getElementById('canvas')
-    canvas.style.left = videoFeedEl.offsetLeft 
-    canvas.style.top = videoFeedEl.offsetTop
-    canvas.height = videoFeedEl.height
-    canvas.width = videoFeedEl.width
+  const authenticateFace = async (descriptorArray) => {
+    try {
+      const response = await axios.post("http://localhost:5000/check-face", {
+        descriptor: descriptorArray,
+      });
+      console.log(response.data.result);
+      clearCanvas();
+      writeText(response.data.result._label);
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
-   
+  const confirnmFace = async () => {
+    clearCanvas();
+    let faceAIData = await faceapi
+      .detectAllFaces(videoFeedEl)
+      .withFaceLandmarks()
+      .withFaceDescriptors();
 
-    /*setInterval(async ()=>{
-        let faceAIData = await faceapi.detectAllFaces(videoFeedEl).withFaceLandmarks().withFaceDescriptors()
-
-        console.log(faceAIData)
-
-        faceAIData.forEach(face => {
-            const {detection, descriptor} = face
-            console.log(detection)
-            console.log(descriptor)
-            //send an http post to localhost:3000/post-descriptor with the descriptor using fetch
-            let descriptorArray = Array.from(descriptor)
-            fetch('http://thingsboard.cloud/api/v1/nl8DAkF4CcBDv1AUDxOh/telemetry', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                //no cors
-                mode: 'no-cors',
-                body: JSON.stringify({
-                    "descriptor": descriptorArray
-                })
-            })
-        });
-
-    },200)*/
-
-    const authenticateFace = async(descriptor , interval) =>{
-        clearInterval(interval)
-        try {
-
-            const response = await fetch('https://c849-190-130-222-118.ngrok-free.app/check-face', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                mode: 'no-cors',
-                body: JSON.stringify({
-                    "descriptor": descriptor
-                })
-            })
-            console.log(response)
-        } catch (error) {
-            console.error('Error:', error)
-        }
-
-        confirnmFace()
+    for (const face of faceAIData) {
+      const { detection, descriptor } = face;
+      if (detection._score > 0.8) {
+        let descriptorArray = Array.from(descriptor);
+        await authenticateFace(descriptorArray);
+      }
     }
 
-    const confirnmFace = () => {
-        const interval = setInterval(async ()=>{
-        let faceAIData = await faceapi.detectAllFaces(videoFeedEl).withFaceLandmarks().withFaceDescriptors()
-        faceAIData.forEach(face => {
-            const {detection, descriptor} = face
-           if(detection._score > 0.8){
-            authenticateFace(descriptor , interval)
-           }
-        });
+    // Llamar a la función de nuevo después de que la tarea anterior haya terminado
+    setTimeout(confirnmFace, 500);
+  };
 
-        },500) 
-    }
+  confirnmFace();
+};
 
-
-    confirnmFace()
-
-}
-run()
+run();
